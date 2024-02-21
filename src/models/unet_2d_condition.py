@@ -1181,7 +1181,7 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
             is_adapter = True
 
         down_block_res_samples = (sample,)
-        tot_referece_features = ()
+        tot_reference_features = []
         for downsample_block in self.down_blocks:
             if (
                 hasattr(downsample_block, "has_cross_attention")

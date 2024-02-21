@@ -327,6 +327,7 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
             )
 
         ref_feature = hidden_states.reshape(batch, height, width, inner_dim)
+        reference_attns = []
         for block in self.transformer_blocks:
             if self.training and self.gradient_checkpointing:
 
@@ -354,7 +355,7 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
                     **ckpt_kwargs,
                 )
             else:
-                hidden_states = block(
+                hidden_states, reference_attn = block(
                     hidden_states,
                     attention_mask=attention_mask,
                     encoder_hidden_states=encoder_hidden_states,
@@ -363,6 +364,7 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
                     cross_attention_kwargs=cross_attention_kwargs,
                     class_labels=class_labels,
                 )
+                reference_attns.append(reference_attn)
 
         # 3. Output
         if self.is_input_continuous:
@@ -393,4 +395,4 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
         if not return_dict:
             return (output, ref_feature)
 
-        return Transformer2DModelOutput(sample=output, ref_feature=ref_feature)
+        return Transformer2DModelOutput(sample=output, ref_feature=torch.tensor(reference_attn))

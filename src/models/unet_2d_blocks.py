@@ -622,7 +622,7 @@ class CrossAttnDownBlock2D(nn.Module):
         )
 
         blocks = list(zip(self.resnets, self.attentions))
-
+        ref_features = []
         for i, (resnet, attn) in enumerate(blocks):
             if self.training and self.gradient_checkpointing:
 
@@ -662,6 +662,7 @@ class CrossAttnDownBlock2D(nn.Module):
                     encoder_attention_mask=encoder_attention_mask,
                     return_dict=False,
                 )
+                ref_features.append(ref_feature)
 
             # apply additional residuals to the output of the last pair of resnet and attention blocks
             if i == len(blocks) - 1 and additional_residuals is not None:
@@ -675,7 +676,7 @@ class CrossAttnDownBlock2D(nn.Module):
 
             output_states = output_states + (hidden_states,)
 
-        return hidden_states, output_states
+        return hidden_states, output_states, torch.tensor(ref_features)
 
 
 class DownBlock2D(nn.Module):
@@ -891,7 +892,7 @@ class CrossAttnUpBlock2D(nn.Module):
             and getattr(self, "b1", None)
             and getattr(self, "b2", None)
         )
-
+        ref_features = []
         for resnet, attn in zip(self.resnets, self.attentions):
             # pop res hidden states
             res_hidden_states = res_hidden_states_tuple[-1]
@@ -949,6 +950,7 @@ class CrossAttnUpBlock2D(nn.Module):
                     encoder_attention_mask=encoder_attention_mask,
                     return_dict=False,
                 )
+                ref_features.append(ref_feature)
 
         if self.upsamplers is not None:
             for upsampler in self.upsamplers:
@@ -956,7 +958,7 @@ class CrossAttnUpBlock2D(nn.Module):
                     hidden_states, upsample_size, scale=lora_scale
                 )
 
-        return hidden_states
+        return hidden_states, torch.tensor(ref_features)
 
 
 class UpBlock2D(nn.Module):
