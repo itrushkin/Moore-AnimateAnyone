@@ -350,32 +350,74 @@ class TemporalBasicTransformerBlock(nn.Module):
     def forward(
         self,
         hidden_states,
+        ref_feature,
         encoder_hidden_states=None,
         timestep=None,
         attention_mask=None,
         video_length=None,
+        cross_attention_kwargs=None,
     ):
-        norm_hidden_states = (
-            self.norm1(hidden_states, timestep)
-            if self.use_ada_layer_norm
-            else self.norm1(hidden_states)
-        )
-
-        if self.unet_use_cross_frame_attention:
-            hidden_states = (
-                self.attn1(
-                    norm_hidden_states,
-                    attention_mask=attention_mask,
-                    video_length=video_length,
-                )
-                + hidden_states
+        if self.use_ada_layer_norm:  # False
+            norm_hidden_states = self.norm1(hidden_states, timestep)
+        elif self.use_ada_layer_norm_zero:
+            (
+                norm_hidden_states,
+                gate_msa,
+                shift_mlp,
+                scale_mlp,
+                gate_mlp,
+            ) = self.norm1(
+                hidden_states,
+                timestep,
+                class_labels,
+                hidden_dtype=hidden_states.dtype,
             )
         else:
-            hidden_states = (
-                self.attn1(norm_hidden_states, attention_mask=attention_mask)
-                + hidden_states
-            )
+            norm_hidden_states = self.norm1(hidden_states)
 
+        # 1. Self-Attention
+        # self.only_cross_attention = False
+        cross_attention_kwargs = (
+            cross_attention_kwargs if cross_attention_kwargs is not None else {}
+        )
+        bank_fea = [
+            rearrange(
+                ref_feature.unsqueeze(1).repeat(1, video_length, 1, 1),
+                "b t l c -> (b t) l c",
+            )
+        ]
+        modify_norm_hidden_states = torch.cat(
+            [norm_hidden_states] + bank_fea, dim=1
+        )
+        hidden_states_uc = (
+            self.attn1(
+                norm_hidden_states,
+                encoder_hidden_states=modify_norm_hidden_states,
+                attention_mask=attention_mask,
+            )
+            + hidden_states
+        )
+        hidden_states_c = hidden_states_uc.clone()
+        _uc_mask = torch.Tensor([1] * 16 + [0] * 16).bool()
+        if hidden_states.shape[0] != _uc_mask.shape[0]:
+            _uc_mask = (
+                torch.Tensor(
+                    [1] * (hidden_states.shape[0] // 2)
+                    + [0] * (hidden_states.shape[0] // 2)
+                )
+                .bool()
+            )
+        hidden_states_c[_uc_mask] = (
+            self.attn1(
+                norm_hidden_states[_uc_mask],
+                encoder_hidden_states=norm_hidden_states[_uc_mask],
+                attention_mask=attention_mask,
+            )
+            + hidden_states[_uc_mask]
+        )
+        hidden_states = hidden_states_c.clone()
+
+        # self.bank.clear()
         if self.attn2 is not None:
             # Cross-Attention
             norm_hidden_states = (
@@ -406,7 +448,11 @@ class TemporalBasicTransformerBlock(nn.Module):
                 if self.use_ada_layer_norm
                 else self.norm_temp(hidden_states)
             )
-            hidden_states = self.attn_temp(norm_hidden_states) + hidden_states
-            hidden_states = rearrange(hidden_states, "(b d) f c -> (b f) d c", d=d)
+            hidden_states = (
+                self.attn_temp(norm_hidden_states) + hidden_states
+            )
+            hidden_states = rearrange(
+                hidden_states, "(b d) f c -> (b f) d c", d=d
+            )
 
         return hidden_states

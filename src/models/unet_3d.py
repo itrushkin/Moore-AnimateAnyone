@@ -399,6 +399,7 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
         sample: torch.FloatTensor,
         timestep: Union[torch.Tensor, float, int],
         encoder_hidden_states: torch.Tensor,
+        ref_features: Dict[str, torch.Tensor],
         class_labels: Optional[torch.Tensor] = None,
         pose_cond_fea: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
@@ -424,6 +425,16 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
         # However, the upsampling interpolation output size can be forced to fit any upsampling size
         # on the fly if necessary.
         default_overall_up_factor = 2**self.num_upsamplers
+        extracted_ref_features = {}
+        for k, v in ref_features.items():
+            parts = k.split(".")
+            if k.startswith("up_blocks") or k.startswith("down_blocks"):
+                head, rest = parts[:2], parts[2:]
+            else:
+                head, rest = parts[:1], parts[1:]
+            head, rest = ".".join(head), ".".join(rest)
+            extracted_ref_features.setdefault(head, {})
+            extracted_ref_features[head][rest] = v
 
         # upsample size should be forwarded when sample is not a multiple of `default_overall_up_factor`
         forward_upsample_size = False
@@ -485,7 +496,7 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
 
         # down
         down_block_res_samples = (sample,)
-        for downsample_block in self.down_blocks:
+        for i, downsample_block in enumerate(self.down_blocks):
             if (
                 hasattr(downsample_block, "has_cross_attention")
                 and downsample_block.has_cross_attention
@@ -495,6 +506,7 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
                     temb=emb,
                     encoder_hidden_states=encoder_hidden_states,
                     attention_mask=attention_mask,
+                    ref_features=extracted_ref_features[f"down_blocks.{i}"]
                 )
             else:
                 sample, res_samples = downsample_block(
@@ -521,9 +533,10 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
         # mid
         sample = self.mid_block(
             sample,
-            emb,
+            temb=emb,
             encoder_hidden_states=encoder_hidden_states,
             attention_mask=attention_mask,
+            ref_features=extracted_ref_features["mid_block"]
         )
 
         if mid_block_additional_residual is not None:
@@ -554,6 +567,7 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
                     encoder_hidden_states=encoder_hidden_states,
                     upsample_size=upsample_size,
                     attention_mask=attention_mask,
+                    ref_features=extracted_ref_features[f"up_blocks.{i}"]
                 )
             else:
                 sample = upsample_block(

@@ -327,8 +327,8 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
             )
 
         ref_feature = hidden_states.reshape(batch, height, width, inner_dim)
-        reference_attns = []
-        for block in self.transformer_blocks:
+        reference_attns = {}
+        for i, block in enumerate(self.transformer_blocks):
             if self.training and self.gradient_checkpointing:
 
                 def create_custom_forward(module, return_dict=None):
@@ -364,7 +364,7 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
                     cross_attention_kwargs=cross_attention_kwargs,
                     class_labels=class_labels,
                 )
-                reference_attns.append(reference_attn)
+                reference_attns[f"transformer_blocks.{i}"] = reference_attn
 
         # 3. Output
         if self.is_input_continuous:
@@ -393,6 +393,6 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
 
             output = hidden_states + residual
         if not return_dict:
-            return (output, ref_feature)
+            return (output, reference_attns)
 
-        return Transformer2DModelOutput(sample=output, ref_feature=torch.tensor(reference_attn))
+        return Transformer2DModelOutput(sample=output, ref_feature=reference_attns)
