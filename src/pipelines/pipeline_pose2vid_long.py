@@ -388,20 +388,20 @@ class Pose2VideoPipeline(DiffusionPipeline):
                 [uncond_encoder_hidden_states, encoder_hidden_states], dim=0
             )
 
-        reference_control_writer = ReferenceAttentionControl(
-            self.reference_unet,
-            do_classifier_free_guidance=do_classifier_free_guidance,
-            mode="write",
-            batch_size=batch_size,
-            fusion_blocks="full",
-        )
-        reference_control_reader = ReferenceAttentionControl(
-            self.denoising_unet,
-            do_classifier_free_guidance=do_classifier_free_guidance,
-            mode="read",
-            batch_size=batch_size,
-            fusion_blocks="full",
-        )
+        # reference_control_writer = ReferenceAttentionControl(
+        #     self.reference_unet,
+        #     do_classifier_free_guidance=do_classifier_free_guidance,
+        #     mode="write",
+        #     batch_size=batch_size,
+        #     fusion_blocks="full",
+        # )
+        # reference_control_reader = ReferenceAttentionControl(
+        #     self.denoising_unet,
+        #     do_classifier_free_guidance=do_classifier_free_guidance,
+        #     mode="read",
+        #     batch_size=batch_size,
+        #     fusion_blocks="full",
+        # )
 
         num_channels_latents = self.denoising_unet.in_channels
         latents = self.prepare_latents(
@@ -464,7 +464,7 @@ class Pose2VideoPipeline(DiffusionPipeline):
 
                 # 1. Forward reference image
                 if i == 0:
-                    self.reference_unet(
+                    _, ref_features = self.reference_unet(
                         ref_image_latents.repeat(
                             (2 if do_classifier_free_guidance else 1), 1, 1, 1
                         ),
@@ -473,7 +473,7 @@ class Pose2VideoPipeline(DiffusionPipeline):
                         encoder_hidden_states=encoder_hidden_states,
                         return_dict=False,
                     )
-                    reference_control_reader.update(reference_control_writer)
+                    # reference_control_reader.update(reference_control_writer)
 
                 context_queue = list(
                     context_scheduler(
@@ -528,6 +528,7 @@ class Pose2VideoPipeline(DiffusionPipeline):
                         encoder_hidden_states=encoder_hidden_states[:b],
                         pose_cond_fea=latent_pose_input,
                         return_dict=False,
+                        ref_features=ref_features
                     )[0]
 
                     for j, c in enumerate(context):
@@ -552,9 +553,6 @@ class Pose2VideoPipeline(DiffusionPipeline):
                     if callback is not None and i % callback_steps == 0:
                         step_idx = i // getattr(self.scheduler, "order", 1)
                         callback(step_idx, t, latents)
-
-            reference_control_reader.clear()
-            reference_control_writer.clear()
 
         if interpolation_factor > 0:
             latents = self.interpolate_latents(latents, interpolation_factor, device)

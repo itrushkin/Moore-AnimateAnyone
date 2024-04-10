@@ -269,17 +269,25 @@ class UNetMidBlock3DCrossAttn(nn.Module):
     def forward(
         self,
         hidden_states,
+        ref_features,
         temb=None,
         encoder_hidden_states=None,
         attention_mask=None,
     ):
+        extracted_ref_features ={}
+        for k, v in ref_features.items():
+            parts = k.split(".")
+            head, rest = ".".join(parts[:2]), ".".join(parts[2:])
+            extracted_ref_features.setdefault(head, {})
+            extracted_ref_features[head][rest] = v
         hidden_states = self.resnets[0](hidden_states, temb)
-        for attn, resnet, motion_module in zip(
+        for i, (attn, resnet, motion_module) in enumerate(zip(
             self.attentions, self.resnets[1:], self.motion_modules
-        ):
+        )):
             hidden_states = attn(
                 hidden_states,
                 encoder_hidden_states=encoder_hidden_states,
+                ref_features=extracted_ref_features[f"attentions.{i}"]
             ).sample
             hidden_states = (
                 motion_module(
@@ -398,11 +406,18 @@ class CrossAttnDownBlock3D(nn.Module):
     def forward(
         self,
         hidden_states,
+        ref_features,
         temb=None,
         encoder_hidden_states=None,
         attention_mask=None,
     ):
         output_states = ()
+        extracted_ref_features ={}
+        for k, v in ref_features.items():
+            parts = k.split(".")
+            head, rest = ".".join(parts[:2]), ".".join(parts[2:])
+            extracted_ref_features.setdefault(head, {})
+            extracted_ref_features[head][rest] = v
 
         for i, (resnet, attn, motion_module) in enumerate(
             zip(self.resnets, self.attentions, self.motion_modules)
@@ -442,6 +457,7 @@ class CrossAttnDownBlock3D(nn.Module):
                 hidden_states = attn(
                     hidden_states,
                     encoder_hidden_states=encoder_hidden_states,
+                    ref_features=extracted_ref_features[f"attentions.{i}"]
                 ).sample
 
                 # add motion module
@@ -683,11 +699,18 @@ class CrossAttnUpBlock3D(nn.Module):
         self,
         hidden_states,
         res_hidden_states_tuple,
+        ref_features,
         temb=None,
         encoder_hidden_states=None,
         upsample_size=None,
         attention_mask=None,
     ):
+        extracted_ref_features ={}
+        for k, v in ref_features.items():
+            parts = k.split(".")
+            head, rest = ".".join(parts[:2]), ".".join(parts[2:])
+            extracted_ref_features.setdefault(head, {})
+            extracted_ref_features[head][rest] = v
         for i, (resnet, attn, motion_module) in enumerate(
             zip(self.resnets, self.attentions, self.motion_modules)
         ):
@@ -727,6 +750,7 @@ class CrossAttnUpBlock3D(nn.Module):
                 hidden_states = attn(
                     hidden_states,
                     encoder_hidden_states=encoder_hidden_states,
+                    ref_features=extracted_ref_features[f"attentions.{i}"]
                 ).sample
 
                 # add motion module

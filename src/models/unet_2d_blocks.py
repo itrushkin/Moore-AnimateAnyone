@@ -464,7 +464,8 @@ class UNetMidBlock2DCrossAttn(nn.Module):
             else 1.0
         )
         hidden_states = self.resnets[0](hidden_states, temb, scale=lora_scale)
-        for attn, resnet in zip(self.attentions, self.resnets[1:]):
+        ref_features = {}
+        for i, (attn, resnet) in enumerate(zip(self.attentions, self.resnets[1:])):
             if self.training and self.gradient_checkpointing:
 
                 def create_custom_forward(module, return_dict=None):
@@ -503,8 +504,10 @@ class UNetMidBlock2DCrossAttn(nn.Module):
                     return_dict=False,
                 )
                 hidden_states = resnet(hidden_states, temb, scale=lora_scale)
+                for k, v in ref_feature.items():
+                    ref_features[f"attentions.{i}.{k}"] = v
 
-        return hidden_states
+        return hidden_states, ref_features
 
 
 class CrossAttnDownBlock2D(nn.Module):
@@ -622,7 +625,7 @@ class CrossAttnDownBlock2D(nn.Module):
         )
 
         blocks = list(zip(self.resnets, self.attentions))
-
+        ref_features = {}
         for i, (resnet, attn) in enumerate(blocks):
             if self.training and self.gradient_checkpointing:
 
@@ -662,6 +665,8 @@ class CrossAttnDownBlock2D(nn.Module):
                     encoder_attention_mask=encoder_attention_mask,
                     return_dict=False,
                 )
+                for k, v in ref_feature.items():
+                    ref_features[f"attentions.{i}.{k}"] = v
 
             # apply additional residuals to the output of the last pair of resnet and attention blocks
             if i == len(blocks) - 1 and additional_residuals is not None:
@@ -675,7 +680,7 @@ class CrossAttnDownBlock2D(nn.Module):
 
             output_states = output_states + (hidden_states,)
 
-        return hidden_states, output_states
+        return hidden_states, output_states, ref_features
 
 
 class DownBlock2D(nn.Module):
@@ -891,8 +896,8 @@ class CrossAttnUpBlock2D(nn.Module):
             and getattr(self, "b1", None)
             and getattr(self, "b2", None)
         )
-
-        for resnet, attn in zip(self.resnets, self.attentions):
+        ref_features = {}
+        for i, (resnet, attn) in enumerate(zip(self.resnets, self.attentions)):
             # pop res hidden states
             res_hidden_states = res_hidden_states_tuple[-1]
             res_hidden_states_tuple = res_hidden_states_tuple[:-1]
@@ -949,6 +954,8 @@ class CrossAttnUpBlock2D(nn.Module):
                     encoder_attention_mask=encoder_attention_mask,
                     return_dict=False,
                 )
+                for k, v in ref_feature.items():
+                    ref_features[f"attentions.{i}.{k}"] = v
 
         if self.upsamplers is not None:
             for upsampler in self.upsamplers:
@@ -956,7 +963,7 @@ class CrossAttnUpBlock2D(nn.Module):
                     hidden_states, upsample_size, scale=lora_scale
                 )
 
-        return hidden_states
+        return hidden_states, ref_features
 
 
 class UpBlock2D(nn.Module):

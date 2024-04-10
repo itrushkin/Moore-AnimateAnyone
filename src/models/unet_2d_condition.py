@@ -1181,8 +1181,8 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
             is_adapter = True
 
         down_block_res_samples = (sample,)
-        tot_referece_features = ()
-        for downsample_block in self.down_blocks:
+        tot_ref_features = {}
+        for i, downsample_block in enumerate(self.down_blocks):
             if (
                 hasattr(downsample_block, "has_cross_attention")
                 and downsample_block.has_cross_attention
@@ -1194,7 +1194,7 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
                         "additional_residuals"
                     ] = down_intrablock_additional_residuals.pop(0)
 
-                sample, res_samples = downsample_block(
+                sample, res_samples, ref_features = downsample_block(
                     hidden_states=sample,
                     temb=emb,
                     encoder_hidden_states=encoder_hidden_states,
@@ -1203,6 +1203,8 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
                     encoder_attention_mask=encoder_attention_mask,
                     **additional_residuals,
                 )
+                for k, v in ref_features.items():
+                    tot_ref_features[f"down_blocks.{i}.{k}"] = v
             else:
                 sample, res_samples = downsample_block(
                     hidden_states=sample, temb=emb, scale=lora_scale
@@ -1233,7 +1235,7 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
                 hasattr(self.mid_block, "has_cross_attention")
                 and self.mid_block.has_cross_attention
             ):
-                sample = self.mid_block(
+                sample, ref_feature = self.mid_block(
                     sample,
                     emb,
                     encoder_hidden_states=encoder_hidden_states,
@@ -1241,6 +1243,8 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
                     cross_attention_kwargs=cross_attention_kwargs,
                     encoder_attention_mask=encoder_attention_mask,
                 )
+                for k, v in ref_feature.items():
+                    tot_ref_features[f"mid_block.{k}"] = v
             else:
                 sample = self.mid_block(sample, emb)
 
@@ -1273,7 +1277,7 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
                 hasattr(upsample_block, "has_cross_attention")
                 and upsample_block.has_cross_attention
             ):
-                sample = upsample_block(
+                sample, ref_feature = upsample_block(
                     hidden_states=sample,
                     temb=emb,
                     res_hidden_states_tuple=res_samples,
@@ -1283,6 +1287,8 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
                     attention_mask=attention_mask,
                     encoder_attention_mask=encoder_attention_mask,
                 )
+                for k, v in ref_feature.items():
+                    tot_ref_features[f"up_blocks.{i}.{k}"] = v
             else:
                 sample = upsample_block(
                     hidden_states=sample,
@@ -1303,6 +1309,6 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
             unscale_lora_layers(self, lora_scale)
 
         if not return_dict:
-            return (sample,)
+            return (sample, tot_ref_features)
 
-        return UNet2DConditionOutput(sample=sample)
+        return UNet2DConditionOutput(sample=sample, ref_features=tot_ref_features)

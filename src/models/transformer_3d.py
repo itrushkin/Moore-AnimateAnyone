@@ -103,6 +103,7 @@ class Transformer3DModel(ModelMixin, ConfigMixin):
     def forward(
         self,
         hidden_states,
+        ref_features,
         encoder_hidden_states=None,
         timestep=None,
         return_dict: bool = True,
@@ -142,6 +143,7 @@ class Transformer3DModel(ModelMixin, ConfigMixin):
                 encoder_hidden_states=encoder_hidden_states,
                 timestep=timestep,
                 video_length=video_length,
+                ref_feature=ref_features[f"transformer_blocks.{i}"]
             )
 
         # Output

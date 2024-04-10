@@ -22,6 +22,7 @@ from src.models.unet_2d_condition import UNet2DConditionModel
 from src.models.unet_3d import UNet3DConditionModel
 from src.pipelines.pipeline_pose2vid_long import Pose2VideoPipeline
 from src.utils.util import get_fps, read_frames, save_videos_grid
+from src.models.attention import BasicTransformerBlock, TemporalBasicTransformerBlock
 
 
 def parse_args():
@@ -38,25 +39,31 @@ def parse_args():
 
     return args
 
+def dfs(module: torch.nn.Module, name=""):
+    if isinstance(module, (BasicTransformerBlock, TemporalBasicTransformerBlock)):
+        yield name
+    for n, c in module.named_children():
+        yield from dfs(c, f"{name}.{n}")
+
 
 def main():
     args = parse_args()
 
     config = OmegaConf.load(args.config)
 
-    if config.weight_dtype == "fp16":
+    if False:
         weight_dtype = torch.float16
     else:
         weight_dtype = torch.float32
 
     vae = AutoencoderKL.from_pretrained(
         config.pretrained_vae_path,
-    ).to("cuda", dtype=weight_dtype)
+    ).to(dtype=weight_dtype)
 
     reference_unet = UNet2DConditionModel.from_pretrained(
         config.pretrained_base_model_path,
         subfolder="unet",
-    ).to(dtype=weight_dtype, device="cuda")
+    ).to(dtype=weight_dtype)
 
     inference_config_path = config.inference_config
     infer_config = OmegaConf.load(inference_config_path)
@@ -65,15 +72,18 @@ def main():
         config.motion_module_path,
         subfolder="unet",
         unet_additional_kwargs=infer_config.unet_additional_kwargs,
-    ).to(dtype=weight_dtype, device="cuda")
+    ).to(dtype=weight_dtype)
+    # for n in dfs(reference_unet):
+    #     print(n)
+    # raise
 
     pose_guider = PoseGuider(320, block_out_channels=(16, 32, 96, 256)).to(
-        dtype=weight_dtype, device="cuda"
+        dtype=weight_dtype
     )
 
     image_enc = CLIPVisionModelWithProjection.from_pretrained(
         config.image_encoder_path
-    ).to(dtype=weight_dtype, device="cuda")
+    ).to(dtype=weight_dtype)
 
     sched_kwargs = OmegaConf.to_container(infer_config.noise_scheduler_kwargs)
     scheduler = DDIMScheduler(**sched_kwargs)
@@ -102,7 +112,7 @@ def main():
         pose_guider=pose_guider,
         scheduler=scheduler,
     )
-    pipe = pipe.to("cuda", dtype=weight_dtype)
+    pipe = pipe.to(dtype=weight_dtype)
 
     date_str = datetime.now().strftime("%Y%m%d")
     time_str = datetime.now().strftime("%H%M")
